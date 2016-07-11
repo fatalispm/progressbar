@@ -1,5 +1,23 @@
-<form enctype="multipart/form-data" action="/upload" method="post">
+<head>
+    <link rel="stylesheet" type="text/css" href="public/styles.css">
+</head>
+<form enctype="multipart/form-data" name="fileinfo" action="/upload" method="post">
     File: <input type="file" name="filearg"/> <br/>
     <br/> <input type="submit" value="upload"/>
 </form>
 
+<body>
+
+<h2>Horizontal Headings:</h2>
+
+<table style="width:100%" id="table">
+    <tr>
+        <th>File Name</th>
+        <th>Start time</th>
+        <th>Progress</th>
+        <th>Link to file</th>
+    </tr>
+
+</table>
+<script src="{{static_url('main.js')}}">
+</script>
