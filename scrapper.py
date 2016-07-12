@@ -7,11 +7,18 @@ import re
 
 import grequests
 import requests
+from gevent import monkey
 
+monkey.patch_all()
 MOZILLA = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.9.1.5) Gecko/20091102 Firefox/3.5.5'
 link = u"http://www.chegg.com/_ajax/federated/search?query={0}&trackid=03ea4a10&strackid=17c8eee9&search_data=%7B%22chgsec%22%3A%22searchsection%22%2C%22chgsubcomp%22%3A%22serp%22%2C%22profile%22%3A%22textbooks-srp%22%2C%22page-number%22%3A{2}%7D&token={1}"
 
+N, M = 100, 100
 s = requests.Session()
+a = requests.adapters.HTTPAdapter(max_retries=5, pool_connections=N, pool_maxsize=M)
+requests.adapters.HTTPAdapter(pool_connections=N, pool_maxsize=M)
+
+s.mount('http://', a)
 
 
 def prepare():
@@ -28,15 +35,20 @@ def extract_token(page):
 
 def url(r):
     try:
-        r = json.loads(r.text)['textbooks']['responseContent']['docs']
-        return r[0]['url']
+        res = json.loads(r.text)['textbooks']['responseContent']['docs']
+        return res[0]['url']
     except:
-        pass
+        print r.text
+        print r.url
 
 
 def is_out_of_stock(r):
-    p2 = re.compile('"stockStatus":"(.*)"')
-    return p2.search(r.text).group(1) == 'out of stock'
+    try:
+        p2 = re.compile('"stockStatus":"(.*)"')
+        return p2.search(r.text).group(1) == 'out of stock'
+    except:
+        print r.text
+        return False
 
 
 def rent_price(r):
@@ -46,7 +58,7 @@ def rent_price(r):
         new_pattern = re.compile('"price":"(\d*\.\d*)",')
         return new_pattern.search(res).group(1)
     except:
-        return "NaN"
+        return -1
 
 
 def find_new_price(r):
@@ -56,7 +68,7 @@ def find_new_price(r):
         new_pattern = re.compile('"price":"(\d*\.\d*)",')
         return new_pattern.search(res).group(1)
     except:
-        return "NaN"
+        return -1
 
 
 def find_used_price(r):
@@ -66,7 +78,7 @@ def find_used_price(r):
         new_pattern = re.compile('"price":"(\d*\.\d*)",')
         return new_pattern.search(res).group(1)
     except:
-        return "NaN"
+        return -1
 
 
 def get_eans(r):
@@ -80,11 +92,11 @@ def get_eans(r):
 def scrape_page(k, token, page_number='1'):
     p = re.compile("\d+")
     if not p.match(k):
-        return k, 'NaN', 'NaN', 'NaN'
+        return k, -1, -1, -1
     r = s.get(link.format(k, token, page_number), headers={"user-agent": MOZILLA})
     url_ = url(r)
     if not url_:
-        return k, 'NaN', 'NaN', 'NaN'
+        return k, -1, -1, -1
     full_link = "http://www.chegg.com" + url(r)
     r2 = s.get(full_link)
     if is_out_of_stock(r2):
@@ -93,17 +105,19 @@ def scrape_page(k, token, page_number='1'):
 
 
 def scrape_page_async(ks, token, page_number='1'):
+    p = re.compile("\d+")
+    ks = filter(lambda x: p.match(x), ks)
     r = (grequests.get(link.format(k, token, page_number), headers={"user-agent": MOZILLA}, session=s) for k in ks)
     results = grequests.map(r)
     urls = map(url, results)
-    urls = map(lambda x: "http://www.chegg.com" + x, urls)
+    urls = map(lambda x: "http://www.chegg.com" + x if x else "/", urls)
     r = (grequests.get(k, headers={"user-agent": MOZILLA}, session=s) for k in urls)
     pages_with_prices = grequests.map(r)
     result = []
     assert (len(ks) == len(pages_with_prices))
     for k, p in zip(ks, pages_with_prices):
         if p is None:
-            result.append((k, 'NaN', 'NaN', 'NaN'))
+            result.append((k, -1, -1, -1))
         else:
             if is_out_of_stock(p):
                 result.append((k, 'Out of stock', 'Out of stock', 'Out of stock'))
@@ -116,8 +130,15 @@ def scrape_eans(N, token, filename='1.csv'):
     res = []
 
     for i in range(1, N):
-        r = s.get(link.format('1', token, i), headers={"user-agent": MOZILLA})
-        res.extend(get_eans(r))
+        try:
+            r = s.get(link.format('1', token, i), headers={"user-agent": MOZILLA})
+            res.extend(get_eans(r))
+        except:
+            try:
+                r = s.get(link.format('1', token, i), headers={"user-agent": MOZILLA})
+                res.extend(get_eans(r))
+            except:
+                pass
     f = file(filename, 'w')
     dw = csv.DictWriter(f, fieldnames=['ISBN'])
     headers = dict((n, n) for n in ['ISBN'])

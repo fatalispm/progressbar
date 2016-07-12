@@ -9,6 +9,9 @@ import tornadoredis
 import tasks
 import redis
 import datetime
+import thread
+from multiprocessing import Process
+
 
 redis_conn = redis.Redis('localhost', '6379')
 
@@ -64,7 +67,12 @@ class Upload(BaseHandler):
         extn = os.path.splitext(fname)[1]
         cname = str(uuid.uuid4())
         fh = open(__UPLOADS__ + cname + extn, 'w')
-        tasks.scrape_async.delay(fileinfo['body'].split('\r\n')[1:], cname)
+        p = Process(target=tasks.scrape_async,
+                                args =(fileinfo['body'].split('\r\n')[1:],
+                                 cname))
+        p.daemon = True
+        p.start()
+        #tasks.scrape_async.delay(fileinfo['body'].split('\r\n')[1:], cname)
         fh.write(fileinfo['body'])
         user = self.get_cookie('user')
         redis_conn.lpush('users', user)

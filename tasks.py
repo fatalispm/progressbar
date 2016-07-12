@@ -2,6 +2,7 @@ import csv
 import logging
 
 import redis
+import time
 from celery import Celery
 
 from scrapper import scrape_page, prepare, scrape_page_async
@@ -10,7 +11,6 @@ redis_conn = redis.Redis('localhost', '6379')
 celery = Celery("tasks", broker='redis://localhost:6379', backend='redis://localhost:6379')
 
 
-@celery.task
 def scrape(data, filename):
     token = prepare()
     logging.log(20, data)
@@ -29,22 +29,32 @@ def scrape(data, filename):
     return fname
 
 
-N = 7
+N = 25
 
 
-@celery.task
+def check(r):
+    return r[1]==-1 and r[2]==-1 and r[3]==-1
+
+
 def scrape_async(data, filename):
+    print "HERE"
     token = prepare()
     data_length = len(data)
     splitted_data = [data[i * N:(i + 1) * N] for i in range(len(data) / N + 1)]
-    print data
     result = []
     step = data_length / 25 + 1
     for i, d in enumerate(splitted_data):
-        print "OK"
-        if i * N % step == 0:
+        if i * N % 100 == 0:
             redis_conn.set('status:%s' % filename, i * 4 * N / step)
         result.extend(scrape_page_async(d, token))
+
+    for i, r in enumerate(result):
+        if check(r):
+            try:
+                result[i] = scrape_page(r[0], token)
+            except:
+                pass
+
     fname = filename + '.csv'
     write_csv(fname, result)
     redis_conn.set('status:%s' % filename, "Finished")
